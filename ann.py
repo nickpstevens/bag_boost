@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.special import expit
-from random import shuffle, seed
 from collections import Counter
 from mldata import *
 
@@ -13,27 +12,26 @@ Written by Nick Stevens
 
 # Useful constants
 CLASS_LABEL = -1
+EXAMPLE_WEIGHT = 0
 
 
 class ANN(object):
     LEARNING_RATE = 0.01
 
-    def __init__(self, training_set, validation_set, num_hidden_units, weight_decay_coeff):
+    def __init__(self, training_set, validation_set, num_hidden_units, weight_decay_coeff, boosting=False):
         self.num_hidden_units = num_hidden_units
         # Set up the training and validation sets
-        self.full_training_set = np.array(training_set.to_float(), ndmin=2)
-        self.full_validation_set = np.array(validation_set.to_float(), ndmin=2)
-        np.random.seed(12345)
-        # Shuffle the sets so that they are not ordered by class label
-        np.random.shuffle(self.full_training_set)
-        np.random.shuffle(self.full_validation_set)
+        self.full_training_set = training_set
+        self.full_validation_set = validation_set
         self.training_labels = self.full_training_set[:, [CLASS_LABEL]]
         self.training_examples = self.full_training_set[:, :CLASS_LABEL]
         self.validation_labels = self.full_validation_set[:, [CLASS_LABEL]]
         self.validation_examples = self.full_validation_set[:, :CLASS_LABEL]
-        # Standardize matrices with respect to each feature
-        self.training_examples = self.standardize(self.training_examples)
-        self.validation_examples = self.standardize(self.validation_examples)
+        if boosting:
+            self.training_example_weights = self.training_examples[:, [EXAMPLE_WEIGHT]]
+            self.training_examples = self.training_examples[:, EXAMPLE_WEIGHT+1:]
+        else:
+            self.training_example_weights = None
         (self.num_training_examples, self.num_features) = self.training_examples.shape
         # Adjust weight-decay coefficient to account for stochastic learning
         self.weight_decay_coeff = weight_decay_coeff / self.num_training_examples
@@ -52,16 +50,6 @@ class ANN(object):
         self.output_inputs = None
         self.output_sigmoids = None
         self.output_labels = np.empty(self.training_labels.shape)
-
-    def standardize(self, example_set):
-        """
-        Replaces each feature value x in the example set with (x - mean(x)) / standard_deviation(x)
-        Any NaN values caused by 0s in the standard deviation are just replaced with 0.
-        Uses ddof=1 because this is calculating the sample standard deviation.
-        """
-        standardized = (example_set - np.mean(example_set, axis=0)) / np.std(example_set, axis=0, ddof=1)
-        standardized = np.nan_to_num(standardized)
-        return standardized
 
     def train(self, num_training_iters, chunk_size=1, convergence_err=float(1e-8), max_iters=10000):
         assert chunk_size > 0
@@ -103,7 +91,7 @@ class ANN(object):
             actual_labels = np.array(self.training_labels[i:i+chunk_size], ndmin=2)
             examples = np.array(self.training_examples[i:i+chunk_size, :], ndmin=2)
             self.feedforward(examples, i)
-            output_dl_dw = self.backpropagation(actual_labels, examples)
+            output_dl_dw = self.backpropagation(actual_labels, examples, i)
         return output_dl_dw
 
     def feedforward(self, examples, index):
@@ -118,14 +106,15 @@ class ANN(object):
         self.output_sigmoids = self.sigmoid(self.output_inputs)
         new_labels = self.binary_values(self.output_sigmoids)
         np.put(self.output_labels, index, new_labels)
+        return new_labels
 
-    def backpropagation(self, actual_labels, examples):
+    def backpropagation(self, actual_labels, examples, index):
         if self.num_hidden_units != 0:
             output_dl_dw = self.calc_output_dl_dw(actual_labels)
             hidden_dl_dw = self.calc_hidden_dl_dw(examples, output_dl_dw)
             self.update_weights(output_dl_dw, hidden_dl_dw)
         else:
-            output_dl_dw = self.calc_output_dl_dw(actual_labels, examples)
+            output_dl_dw = self.calc_output_dl_dw(actual_labels, examples, index)
             self.update_weights(output_dl_dw)
         return output_dl_dw
 
@@ -134,7 +123,7 @@ class ANN(object):
         if hidden_dl_dw is not None:
             self.hidden_weights -= (self.LEARNING_RATE * (hidden_dl_dw + self.weight_decay_coeff * self.hidden_weights))
 
-    def calc_output_dl_dw(self, actual_labels, inputs=None):
+    def calc_output_dl_dw(self, actual_labels, inputs=None, index=None):
         """
         Calculates the loss due to the output-layer weights between the output unit and the hidden-layer outputs.
         Returned matrix should have shape (num_hidden_units, 1) or (num_features, 1) if there are no hidden units
@@ -148,6 +137,9 @@ class ANN(object):
         dl_dw = np.dot(d_sigmoid_times_inputs, subtracted_term.T)
         dl_dw_avg = np.sum(dl_dw, axis=1)  # If there are multiple examples, average the partial loss across examples
         dl_dw_avg = np.reshape(dl_dw_avg, (dl_dw_avg.shape[0], -1))
+        if self.training_example_weights is not None and index is not None:
+            # Incorporate boosting weight into error
+            dl_dw_avg *= self.training_example_weights[index]
         return dl_dw_avg
 
     def calc_hidden_dl_dw(self, examples, output_dl_dw):
@@ -194,27 +186,28 @@ class ANN(object):
         return self.validation_labels, self.output_labels[:num_examples]
 
 
-def k_folds_stratified(example_set, schema, k):
-    seed(12345)
-    shuffle(example_set)
+def k_folds_stratified(example_set, k):
     label_dist = Counter(ex[CLASS_LABEL] for ex in example_set)
     label_values = label_dist.keys()
     examples_with_label = [[] for x in xrange(len(label_values))]
     # Get the set of examples for each label
     for example in example_set:
         for label in label_values:
-            if example[CLASS_LABEL] == label_values[label]:
-                examples_with_label[label].append(example)
+            if example[CLASS_LABEL] == label_values[int(label)]:
+                examples_with_label[int(label)].append(example)
                 break
     # Group examples by class label
     sorted_examples = []
     for example_subset in examples_with_label:
         sorted_examples += example_subset
-    folds = [ExampleSet(schema) for x in xrange(k)]
+    folds = [[] for x in xrange(k)]
     # Distribute sorted examples evenly amongst all k folds
     for i in xrange(0, len(sorted_examples)):
         assigned_fold = i % k
         folds[assigned_fold].append(sorted_examples[i])
+    for fold in folds:
+        fold = np.array(fold)
+        np.random.shuffle(fold)
     return folds
 
 
@@ -229,7 +222,7 @@ def evaluate_ann_performance(ann, label_pairs=None):
         assert num_examples > 0
         label_pairs = zip(actual_labels, assigned_labels)
     else:
-        num_examples, two = np.shape(label_pairs)
+        num_examples = np.shape(label_pairs)[0]
     for labels in label_pairs:
         if labels == (1.0, 1.0):
             true_positives += 1

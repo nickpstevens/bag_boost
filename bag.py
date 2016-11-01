@@ -40,11 +40,18 @@ def main(options):
     except ValueError:
         num_bagging_training_iters = default_num_bagging_training_iters
 
+    # Create a numpy array from the example set
+    example_set = np.array(example_set.to_float(), ndmin=2)
+    # Shuffle the set to ensure that it is not ordered by class label
+    np.random.seed(12345)
+    np.random.shuffle(example_set)
+    # Standardize the feature values in the example set
+    example_set = standardize(example_set)
+
     if learning_algorithm is ANN:
-        # Learning algorithm is ANN
-        num_hidden_units = len(schema) - 1  # The number of features (excluding the class label)
+        num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 3  # TODO may need to be adjusted
+        num_ann_training_iters = 5  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_bag(example_set, example_set, schema, num_hidden_units,
                                                        weight_decay_coeff, num_ann_training_iters,
@@ -54,18 +61,19 @@ def main(options):
             print('Recall:\t\t' + str("%0.6f" % recall))
         else:
             num_folds = 5
-            fold_set = k_folds_stratified(example_set, schema, num_folds)
+            fold_set = k_folds_stratified(example_set, num_folds)
             accuracy_vals = np.empty(num_folds)
             precision_vals = np.empty(num_folds)
             recall_vals = np.empty(num_folds)
             fpr_vals = np.empty(num_folds)
             for i in xrange(0, num_folds):
-                validation_set = fold_set[i]
-                training_set = ExampleSet(schema)
+                validation_set = np.array(fold_set[i])
+                training_set = []
                 for j in xrange(1, 5):
                     k = (i + j) % 5
                     for example in fold_set[k]:
                         training_set.append(example)
+                training_set = np.array(training_set)
                 print('Fold ' + str(i + 1))
                 accuracy, precision, recall, fpr = ann_bag(training_set, validation_set, schema, num_hidden_units,
                                                             weight_decay_coeff, num_ann_training_iters,
@@ -80,20 +88,33 @@ def main(options):
             precision_std = np.std(precision_vals, ddof=1)
             recall = np.mean(recall_vals)
             recall_std = np.std(recall_vals, ddof=1)
-            area_under_roc = find_area_under_roc(fpr_vals, recall_vals)
+            aroc = find_area_under_roc(fpr_vals, recall_vals)
             print('Accuracy:\t' + str("%0.6f" % accuracy) + '\t' + str("%0.6f" % accuracy_std))
             print('Precision:\t' + str("%0.6f" % precision) + '\t' + str("%0.6f" % precision_std))
             print('Recall:\t\t' + str("%0.6f" % recall) + '\t' + str("%0.6f" % recall_std))
-            print('Area under ROC:\t' + str("%0.6f" % area_under_roc) + '\n')
+            print('Area under ROC:\t' + str("%0.6f" % aroc) + '\n')
     else:
         raise NotImplementedError
+
+
+def standardize(example_set):
+    """
+    Replaces each feature value x in the example set with (x - mean(x)) / standard_deviation(x)
+    Any NaN values caused by 0s in the standard deviation are just replaced with 0.
+    Uses ddof=1 because this is calculating the sample standard deviation.
+    """
+    labels = example_set[:, [CLASS_LABEL]]
+    feature_values = example_set[:, :CLASS_LABEL]
+    standardized = (feature_values - np.mean(feature_values, axis=0)) / np.std(feature_values, axis=0, ddof=1)
+    standardized = np.nan_to_num(standardized)
+    return np.column_stack((standardized, labels))
 
 
 def ann_bag(training_set, validation_set, schema, num_hidden_units,
             weight_decay_coeff, num_ann_training_iters, num_bagging_training_iters):
     iter_labels = np.empty(len(validation_set))
     for i in xrange(0, num_bagging_training_iters):
-        print('\nBagging iteration ' + str(i+1))
+        print('\nBagging Iteration ' + str(i+1))
         replicate_set = bootstrap_replicate(training_set, schema, seed_value=i)
         ann = ANN(replicate_set, validation_set, num_hidden_units, weight_decay_coeff)
         ann.train(num_ann_training_iters)
@@ -110,6 +131,7 @@ def most_common_label(vector):
     counter = Counter(vector)
     return counter.most_common(1)[0][0]
 
+
 def bootstrap_replicate(example_set, schema, size=None, seed_value=12345):
     """
     Creates a bootstrap replicate of example_set by sampling with replacement. If creating multiple replicates, input a
@@ -118,10 +140,10 @@ def bootstrap_replicate(example_set, schema, size=None, seed_value=12345):
     num_examples = len(example_set)
     if size is None:
         size = num_examples
-    seed(seed_value)
-    replicate = ExampleSet(schema)
+    np.random.seed(seed_value)
+    replicate = np.empty([size, len(schema)])
     for i in xrange(0, size):
-        replicate.append(example_set[randrange(num_examples)])
+        replicate[i, :] = example_set[np.random.randint(0, num_examples), :]
     return replicate
 
 
