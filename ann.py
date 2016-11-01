@@ -92,6 +92,12 @@ class ANN(object):
             examples = np.array(self.training_examples[i:i+chunk_size, :], ndmin=2)
             self.feedforward(examples, i)
             output_dl_dw = self.backpropagation(actual_labels, examples, i)
+            """
+            if self.output_labels[i] != self.training_labels[i] and i < 100:
+                print('\t\tWrong: ' + str(i) + '\t' + str(np.sum(output_dl_dw)) + '\t\t\t' + str(self.training_example_weights[i]))
+            elif i < 100:
+                print('\t\tRight: ' + str(i) + '\t' + str(np.sum(output_dl_dw)) + '\t\t\t' + str(self.training_example_weights[i]))
+            """
         return output_dl_dw
 
     def feedforward(self, examples, index):
@@ -138,8 +144,8 @@ class ANN(object):
         dl_dw_avg = np.sum(dl_dw, axis=1)  # If there are multiple examples, average the partial loss across examples
         dl_dw_avg = np.reshape(dl_dw_avg, (dl_dw_avg.shape[0], -1))
         if self.training_example_weights is not None and index is not None:
-            # Incorporate boosting weight into error
-            dl_dw_avg *= self.training_example_weights[index]
+            # Incorporate boosting weight into loss
+            dl_dw_avg *= (self.training_example_weights[index] * self.num_training_examples)
         return dl_dw_avg
 
     def calc_hidden_dl_dw(self, examples, output_dl_dw):

@@ -49,7 +49,7 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 10  # TODO may need to be adjusted
+        num_ann_training_iters = 500  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_boost(example_set, example_set, num_hidden_units,
                                                          weight_decay_coeff, num_ann_training_iters,
@@ -113,10 +113,9 @@ def ann_boost(training_set, validation_set, num_hidden_units,
     # Add a column to the front of the example matrix containing the initial weight for each example
     example_weights = np.full((training_set.shape[0], 1), 1.0 / len(training_set))
     anns = []
-    alphas = np.empty(num_boosting_training_iters)
+    alphas = []
     for i in xrange(0, num_boosting_training_iters):
         print('\nBoosting Iteration ' + str(i + 1))
-        # replicate_set = bootstrap_replicate(training_set, schema, seed_value=i)  # TODO need to use replicates?
         weighted_training_set = np.column_stack((example_weights, training_set))
         ann = ANN(weighted_training_set, validation_set, num_hidden_units, weight_decay_coeff, boosting=True)
         ann.train(num_ann_training_iters)
@@ -124,10 +123,11 @@ def ann_boost(training_set, validation_set, num_hidden_units,
         assigned_labels = ann.output_labels
         error = weighted_training_error(example_weights, actual_labels, assigned_labels)
         alpha = classifier_weight(error)
-        # TODO handle classifier_weight returns 1 or 0
-        example_weights = update_example_weights(example_weights, alpha, actual_labels, assigned_labels)
         anns.append(ann)
-        alphas[i] = alpha
+        alphas.append(alpha)
+        example_weights = update_example_weights(example_weights, alpha, actual_labels, assigned_labels)
+    alphas = np.array(alphas)
+    print(alphas.T)
     vote_labels = weighted_vote_labels(anns, alphas)
     assert ann is not None
     actual_labels = ann.validation_labels
@@ -146,8 +146,8 @@ def weighted_training_error(example_weights, actual_labels, assigned_labels):
 
 def classifier_weight(error):
     if error == 0.0:
-        return 1  # Valid because weights are normalized
-    elif error > 0.5:
+        return float('inf')
+    elif error >= 0.5:
         return 0
     else:
         return 0.5 * np.log((1-error) / float(error))
@@ -155,17 +155,18 @@ def classifier_weight(error):
 
 def update_example_weights(example_weights, alpha, actual_labels, assigned_labels):
     # Replace 0 with -1 in labels
-    actual_labels[actual_labels == 0.0] = -1.0
-    assigned_labels[assigned_labels == 0.0] = -1.0
-    label_signs = actual_labels * assigned_labels
-    updated_weights = example_weights * np.exp(alpha * label_signs)
-    weight_sum = sum(updated_weights)
+    actual_copy = np.copy(actual_labels)
+    actual_copy[actual_copy == 0.0] = -1.0
+    assigned_copy = np.copy(assigned_labels)
+    assigned_copy[assigned_copy == 0.0] = -1.0
+    label_signs = actual_copy * assigned_copy
+    updated_weights = example_weights * np.exp(-alpha * label_signs)
+    weight_sum = np.sum(updated_weights)
     updated_weights /= weight_sum
     return updated_weights
 
 
 def weighted_vote_labels(anns, alphas):
-    print(alphas)
     all_labels = np.empty((anns[0].validation_labels.shape[0], len(anns)))
     for i in xrange(0, len(anns)):
         iter_labels = anns[i].evaluate()[1].flatten()
@@ -175,8 +176,9 @@ def weighted_vote_labels(anns, alphas):
     for i in xrange(0, len(alphas)):
         alpha = float(alphas[i])
         vote_labels += np.array((alpha / alpha_sum) * all_labels[:, i], ndmin=2).T
+    # Map weighted vote results to 1 and 0
     vote_labels[vote_labels > 0.5] = 1
-    vote_labels[vote_labels <= 0.5] = 0  # TODO should this be done explicitly?
+    vote_labels[vote_labels <= 0.5] = 0
     return vote_labels
 
 
