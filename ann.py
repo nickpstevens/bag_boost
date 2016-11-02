@@ -92,12 +92,6 @@ class ANN(object):
             examples = np.array(self.training_examples[i:i+chunk_size, :], ndmin=2)
             self.feedforward(examples, i)
             output_dl_dw = self.backpropagation(actual_labels, examples, i)
-            """
-            if self.output_labels[i] != self.training_labels[i] and i < 100:
-                print('\t\tWrong: ' + str(i) + '\t' + str(np.sum(output_dl_dw)) + '\t\t\t' + str(self.training_example_weights[i]))
-            elif i < 100:
-                print('\t\tRight: ' + str(i) + '\t' + str(np.sum(output_dl_dw)) + '\t\t\t' + str(self.training_example_weights[i]))
-            """
         return output_dl_dw
 
     def feedforward(self, examples, index):
@@ -192,6 +186,77 @@ class ANN(object):
         return self.validation_labels, self.output_labels[:num_examples]
 
 
+def main(options):
+    assert options is not None
+    assert len(options) == 5
+    file_base = options[0]
+    example_set = parse_c45(file_base)
+    schema = example_set.schema
+
+    default_cv_option = 0
+    default_num_hidden_units = 20
+    default_weight_decay_coeff = 0.01
+    default_num_training_iters = 0
+
+    # If 0, use cross-validation. If 1, run algorithm on full sample.
+    cv_option = (1 if options[1] == '1' else default_cv_option)
+    try:
+        num_hidden_units = (int(options[2]) if int(options[2]) >= 0 else default_num_hidden_units)
+    except ValueError:
+        num_hidden_units = default_num_hidden_units
+    try:
+        weight_decay_coeff = float(options[3])
+    except ValueError:
+        weight_decay_coeff = default_weight_decay_coeff
+    try:
+        num_training_iters = (int(options[4]) if int(options[4]) > 0 else default_num_training_iters)
+    except ValueError:
+        num_training_iters = default_num_training_iters
+
+    # Create a numpy array from the example set
+    example_set = np.array(example_set.to_float(), ndmin=2)
+    # Shuffle the set to ensure that it is not ordered by class label
+    np.random.seed(12345)
+    np.random.shuffle(example_set)
+    # Standardize the feature values in the example set
+    example_set = standardize(example_set)
+
+    if cv_option == 1:
+        accuracy, precision, recall, false_positive_rate \
+            = run(example_set, example_set, num_hidden_units, weight_decay_coeff, num_training_iters)
+        print('Accuracy:\t' + str("%0.6f" % accuracy))
+        print('Precision:\t' + str("%0.6f" % precision))
+        print('Recall:\t\t' + str("%0.6f" % recall))
+    else:
+        fold_set = k_folds_stratified(example_set, 5)
+        accuracy_vals, precision_vals, recall_vals, fpr_vals = \
+            run_cross_validation(fold_set, num_hidden_units, weight_decay_coeff, num_training_iters)
+        accuracy = np.mean(accuracy_vals)
+        accuracy_std = np.std(accuracy_vals, ddof=1)
+        precision = np.mean(precision_vals)
+        precision_std = np.std(precision_vals, ddof=1)
+        recall = np.mean(recall_vals)
+        recall_std = np.std(recall_vals, ddof=1)
+        area_under_roc = find_area_under_roc(fpr_vals, recall_vals)
+        print('Accuracy:\t' + str("%0.6f" % accuracy) + '\t' + str("%0.6f" % accuracy_std))
+        print('Precision:\t' + str("%0.6f" % precision) + '\t' + str("%0.6f" % precision_std))
+        print('Recall:\t\t' + str("%0.6f" % recall) + '\t' + str("%0.6f" % recall_std))
+        print('Area under ROC:\t' + str("%0.6f" % area_under_roc) + '\n')
+
+
+def standardize(example_set):
+    """
+    Replaces each feature value x in the example set with (x - mean(x)) / standard_deviation(x)
+    Any NaN values caused by 0s in the standard deviation are just replaced with 0.
+    Uses ddof=1 because this is calculating the sample standard deviation.
+    """
+    labels = example_set[:, [CLASS_LABEL]]
+    feature_values = example_set[:, :CLASS_LABEL]
+    standardized = (feature_values - np.mean(feature_values, axis=0)) / np.std(feature_values, axis=0, ddof=1)
+    standardized = np.nan_to_num(standardized)
+    return np.column_stack((standardized, labels))
+
+
 def k_folds_stratified(example_set, k):
     label_dist = Counter(ex[CLASS_LABEL] for ex in example_set)
     label_values = label_dist.keys()
@@ -211,10 +276,45 @@ def k_folds_stratified(example_set, k):
     for i in xrange(0, len(sorted_examples)):
         assigned_fold = i % k
         folds[assigned_fold].append(sorted_examples[i])
-    for fold in folds:
-        fold = np.array(fold)
+    for j in xrange(0, k):
+        fold = np.array(folds[j])
         np.random.shuffle(fold)
+        folds[j] = fold
     return folds
+
+
+def run_cross_validation(fold_set, num_hidden_units, weight_decay_coeff, num_training_iters):
+    num_folds = len(fold_set)
+    assert num_folds != 0
+    accuracy_vals = np.empty(num_folds)
+    precision_vals = np.empty(num_folds)
+    recall_vals = np.empty(num_folds)
+    fpr_vals = np.empty(num_folds)
+    for i in xrange(0, num_folds):
+        validation_set = np.array(fold_set[i])
+        training_set = []
+        for j in xrange(1, 5):
+            k = (i + j) % 5
+            for example in fold_set[k]:
+                training_set.append(example)
+        training_set = np.array(training_set)
+        print('Fold ' + str(i + 1))
+        accuracy, precision, recall, false_positive_rate \
+            = run(training_set, validation_set, num_hidden_units, weight_decay_coeff, num_training_iters)
+        np.put(accuracy_vals, i, accuracy)
+        np.put(precision_vals, i, precision)
+        np.put(recall_vals, i, recall)
+        np.put(fpr_vals, i, false_positive_rate)
+    return accuracy_vals, precision_vals, recall_vals, fpr_vals
+
+
+def run(training_set, validation_set, num_hidden_units, weight_decay_coeff, num_training_iters):
+    print('Building ANN')
+    ann = ANN(training_set, validation_set, num_hidden_units, weight_decay_coeff)
+    print('\nTraining ANN')
+    ann.train(num_training_iters)
+    print('\nEvaluating ANN performance\n')
+    return evaluate_ann_performance(ann)
 
 
 def evaluate_ann_performance(ann, label_pairs=None):
@@ -276,3 +376,6 @@ def find_area_under_roc(fpr_vals, tpr_vals):
         area += 0.5 * (base + top) * height
     return area
 
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

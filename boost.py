@@ -1,4 +1,5 @@
 import numpy as np
+from math import log
 
 from mldata import *
 from ann import ANN, find_area_under_roc, evaluate_ann_performance, k_folds_stratified
@@ -49,7 +50,7 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 500  # TODO may need to be adjusted
+        num_ann_training_iters = 1  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_boost(example_set, example_set, num_hidden_units,
                                                          weight_decay_coeff, num_ann_training_iters,
@@ -90,7 +91,7 @@ def main(options):
             print('Accuracy:\t' + str("%0.6f" % accuracy) + '\t' + str("%0.6f" % accuracy_std))
             print('Precision:\t' + str("%0.6f" % precision) + '\t' + str("%0.6f" % precision_std))
             print('Recall:\t\t' + str("%0.6f" % recall) + '\t' + str("%0.6f" % recall_std))
-            print('Area under ROC:\t' + str("%0.6f" % aroc) + '\n')
+            print('Area Under ROC:\t' + str("%0.6f" % aroc) + '\n')
     else:
         raise NotImplementedError
 
@@ -122,10 +123,17 @@ def ann_boost(training_set, validation_set, num_hidden_units,
         actual_labels = ann.training_labels
         assigned_labels = ann.output_labels
         error = weighted_training_error(example_weights, actual_labels, assigned_labels)
+        print('\terror: ' + str(error))
         alpha = classifier_weight(error)
+        print('\talpha: ' + str(alpha))
+        if alpha == float('inf'):
+            alphas = [float('inf')]
+            anns = [ann]
+            break
         anns.append(ann)
         alphas.append(alpha)
-        example_weights = update_example_weights(example_weights, alpha, actual_labels, assigned_labels)
+        if alpha != 0.0:
+            example_weights = update_example_weights(example_weights, alpha, actual_labels, assigned_labels)
     alphas = np.array(alphas)
     print(alphas.T)
     vote_labels = weighted_vote_labels(anns, alphas)
@@ -148,9 +156,9 @@ def classifier_weight(error):
     if error == 0.0:
         return float('inf')
     elif error >= 0.5:
-        return 0
+        return 0.0
     else:
-        return 0.5 * np.log((1-error) / float(error))
+        return 0.5 * log((1-error) / float(error))
 
 
 def update_example_weights(example_weights, alpha, actual_labels, assigned_labels):
@@ -163,10 +171,14 @@ def update_example_weights(example_weights, alpha, actual_labels, assigned_label
     updated_weights = example_weights * np.exp(-alpha * label_signs)
     weight_sum = np.sum(updated_weights)
     updated_weights /= weight_sum
+    print('\tmax error: ' + str(np.max(updated_weights)))
     return updated_weights
 
 
 def weighted_vote_labels(anns, alphas):
+    # Handles case where there is a perfect classifier
+    if alphas[0] == float('inf'):
+        return anns[0].evaluate()[1]
     all_labels = np.empty((anns[0].validation_labels.shape[0], len(anns)))
     for i in xrange(0, len(anns)):
         iter_labels = anns[i].evaluate()[1].flatten()

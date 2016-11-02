@@ -51,7 +51,7 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 5  # TODO may need to be adjusted
+        num_ann_training_iters = 1  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_bag(example_set, example_set, schema, num_hidden_units,
                                                        weight_decay_coeff, num_ann_training_iters,
@@ -92,7 +92,7 @@ def main(options):
             print('Accuracy:\t' + str("%0.6f" % accuracy) + '\t' + str("%0.6f" % accuracy_std))
             print('Precision:\t' + str("%0.6f" % precision) + '\t' + str("%0.6f" % precision_std))
             print('Recall:\t\t' + str("%0.6f" % recall) + '\t' + str("%0.6f" % recall_std))
-            print('Area under ROC:\t' + str("%0.6f" % aroc) + '\n')
+            print('Area Under ROC:\t' + str("%0.6f" % aroc) + '\n')
     else:
         raise NotImplementedError
 
