@@ -18,7 +18,7 @@ EXAMPLE_WEIGHT = 0
 class ANN(object):
     #LEARNING_RATE = 0.01
 
-    def __init__(self, training_set, validation_set, num_hidden_units, weight_decay_coeff, boosting=False):
+    def __init__(self, training_set, validation_set, num_hidden_units, weight_decay_coeff, weighted_examples=False):
         self.num_hidden_units = num_hidden_units
         # Set up the training and validation sets
         self.full_training_set = training_set
@@ -27,7 +27,7 @@ class ANN(object):
         self.training_examples = self.full_training_set[:, :CLASS_LABEL]
         self.validation_labels = self.full_validation_set[:, [CLASS_LABEL]]
         self.validation_examples = self.full_validation_set[:, :CLASS_LABEL]
-        if boosting:
+        if weighted_examples:
             self.training_example_weights = self.training_examples[:, [EXAMPLE_WEIGHT]]
             self.training_examples = self.training_examples[:, EXAMPLE_WEIGHT+1:]
         else:
@@ -53,7 +53,7 @@ class ANN(object):
         self.output_sigmoids = None
         self.output_labels = np.empty(self.training_labels.shape)
 
-    def train(self, num_training_iters, chunk_size=1, convergence_err=float(1e-8), max_iters=10000):
+    def train(self, num_training_iters, chunk_size=1, convergence_err=float(1e-8), max_iters=10000, weak_converge=False):
         assert chunk_size > 0
         assert convergence_err >= 0.0
         assert max_iters > 0
@@ -61,7 +61,17 @@ class ANN(object):
         if chunk_size != 1:
             # Rescale the weight-decay coefficient to account for the number of examples
             self.weight_decay_coeff *= chunk_size
-        if num_training_iters == 0:
+        if num_training_iters == 0 and weak_converge:
+            i = 0
+            weighted_error = 1.0
+            while weighted_error >= 0.5:
+                i += 1
+                self.stochastic_learning(chunk_size)
+                weighted_error = np.sum([self.training_example_weights[x]
+                                         for x in xrange(0, self.num_training_examples)
+                                         if self.output_labels[x] != self.training_labels[x]])
+                print('\t' + str(i) + '.\tIteration error:\t' + str(weighted_error))
+        elif num_training_iters == 0:
             i = 0
             while not np.array_equal(self.output_labels, self.training_labels):
                 output_dl_dw = self.stochastic_learning(chunk_size)
@@ -193,6 +203,8 @@ def main(options):
     assert len(options) == 5
     file_base = options[0]
     example_set = parse_c45(file_base)
+    print(len(example_set))
+    print(len(example_set.schema))
 
     default_cv_option = 0
     default_num_hidden_units = 20
@@ -242,7 +254,7 @@ def main(options):
         print('Accuracy:\t' + str("%0.6f" % accuracy) + '\t' + str("%0.6f" % accuracy_std))
         print('Precision:\t' + str("%0.6f" % precision) + '\t' + str("%0.6f" % precision_std))
         print('Recall:\t\t' + str("%0.6f" % recall) + '\t' + str("%0.6f" % recall_std))
-        print('Area under ROC:\t' + str("%0.6f" % area_under_roc) + '\n')
+        print('Area Under ROC:\t' + str("%0.6f" % area_under_roc) + '\n')
 
 
 def standardize(example_set):
@@ -311,9 +323,11 @@ def run_cross_validation(fold_set, num_hidden_units, weight_decay_coeff, num_tra
 
 def run(training_set, validation_set, num_hidden_units, weight_decay_coeff, num_training_iters):
     print('Building ANN')
-    ann = ANN(training_set, validation_set, num_hidden_units, weight_decay_coeff)
+    example_weights = np.full((training_set.shape[0], 1), 1.0 / len(training_set))
+    weighted_training_set = np.column_stack((example_weights, training_set))
+    ann = ANN(weighted_training_set, validation_set, num_hidden_units, weight_decay_coeff, weighted_examples=True)
     print('\nTraining ANN')
-    ann.train(num_training_iters)
+    ann.train(num_training_iters, weak_converge=True)  # So that this performs the same number of iterations as boost
     print('\nEvaluating ANN performance\n')
     return evaluate_ann_performance(ann)
 

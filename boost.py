@@ -24,7 +24,7 @@ def main(options):
 
     default_cv_option = 0
     default_learning_algorithm = ANN
-    default_num_boosting_training_iters = 3
+    default_num_boosting_training_iters = 10
 
     # If 0, use cross-validation. If 1, run algorithm on full sample.
     cv_option = (1 if options[1] == '1' else default_cv_option)
@@ -49,7 +49,7 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 200  # TODO may need to be adjusted
+        num_ann_training_iters = 0  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_boost(example_set, example_set, num_hidden_units,
                                                          weight_decay_coeff, num_ann_training_iters,
@@ -117,8 +117,8 @@ def ann_boost(training_set, validation_set, num_hidden_units,
     for i in xrange(0, num_boosting_training_iters):
         print('\nBoosting Iteration ' + str(i+1))
         weighted_training_set = np.column_stack((example_weights, training_set))
-        ann = ANN(weighted_training_set, validation_set, num_hidden_units, weight_decay_coeff, boosting=True)
-        ann.train(num_ann_training_iters)
+        ann = ANN(weighted_training_set, validation_set, num_hidden_units, weight_decay_coeff, weighted_examples=True)
+        ann.train(num_ann_training_iters, weak_converge=True)
         actual_labels = ann.training_labels
         assigned_labels = ann.output_labels
         error = weighted_training_error(example_weights, actual_labels, assigned_labels)

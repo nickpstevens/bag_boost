@@ -50,7 +50,7 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 200  # TODO may need to be adjusted
+        num_ann_training_iters = 0  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_bag(example_set, example_set, schema, num_hidden_units,
                                                        weight_decay_coeff, num_ann_training_iters,
@@ -112,11 +112,13 @@ def standardize(example_set):
 def ann_bag(training_set, validation_set, schema, num_hidden_units,
             weight_decay_coeff, num_ann_training_iters, num_bagging_training_iters):
     iter_labels = np.empty(len(validation_set))
+    example_weights = np.full((training_set.shape[0], 1), 1.0 / len(training_set))
     for i in xrange(0, num_bagging_training_iters):
         print('\nBagging Iteration ' + str(i+1))
         replicate_set = bootstrap_replicate(training_set, schema, seed_value=i)
-        ann = ANN(replicate_set, validation_set, num_hidden_units, weight_decay_coeff)
-        ann.train(num_ann_training_iters)
+        weighted_replicate_set = np.column_stack((example_weights, training_set))
+        ann = ANN(weighted_replicate_set, validation_set, num_hidden_units, weight_decay_coeff, weighted_examples=True)
+        ann.train(num_ann_training_iters, weak_converge=True)
         iter_labels = np.column_stack((iter_labels, ann.evaluate()[1]))
     voting_labels = np.apply_along_axis(most_common_label, 1, iter_labels)
     assert ann is not None
