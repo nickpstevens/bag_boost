@@ -21,7 +21,6 @@ def main(options):
     assert len(options) == 4
     file_base = options[0]
     example_set = parse_c45(file_base)
-    schema = example_set.schema
 
     default_cv_option = 0
     default_learning_algorithm = ANN
@@ -50,7 +49,7 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 1  # TODO may need to be adjusted
+        num_ann_training_iters = 200  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_boost(example_set, example_set, num_hidden_units,
                                                          weight_decay_coeff, num_ann_training_iters,
@@ -116,14 +115,14 @@ def ann_boost(training_set, validation_set, num_hidden_units,
     anns = []
     alphas = []
     for i in xrange(0, num_boosting_training_iters):
-        print('\nBoosting Iteration ' + str(i + 1))
+        print('\nBoosting Iteration ' + str(i+1))
         weighted_training_set = np.column_stack((example_weights, training_set))
         ann = ANN(weighted_training_set, validation_set, num_hidden_units, weight_decay_coeff, boosting=True)
         ann.train(num_ann_training_iters)
         actual_labels = ann.training_labels
         assigned_labels = ann.output_labels
         error = weighted_training_error(example_weights, actual_labels, assigned_labels)
-        print('\terror: ' + str(error))
+        print('\n\terror: ' + str(error))
         alpha = classifier_weight(error)
         print('\talpha: ' + str(alpha))
         if alpha == float('inf'):
@@ -134,6 +133,8 @@ def ann_boost(training_set, validation_set, num_hidden_units,
         alphas.append(alpha)
         if alpha != 0.0:
             example_weights = update_example_weights(example_weights, alpha, actual_labels, assigned_labels)
+        else:
+            break
     alphas = np.array(alphas)
     print(alphas.T)
     vote_labels = weighted_vote_labels(anns, alphas)
@@ -171,7 +172,6 @@ def update_example_weights(example_weights, alpha, actual_labels, assigned_label
     updated_weights = example_weights * np.exp(-alpha * label_signs)
     weight_sum = np.sum(updated_weights)
     updated_weights /= weight_sum
-    print('\tmax error: ' + str(np.max(updated_weights)))
     return updated_weights
 
 

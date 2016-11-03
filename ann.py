@@ -16,7 +16,7 @@ EXAMPLE_WEIGHT = 0
 
 
 class ANN(object):
-    LEARNING_RATE = 0.01
+    #LEARNING_RATE = 0.01
 
     def __init__(self, training_set, validation_set, num_hidden_units, weight_decay_coeff, boosting=False):
         self.num_hidden_units = num_hidden_units
@@ -35,9 +35,11 @@ class ANN(object):
         (self.num_training_examples, self.num_features) = self.training_examples.shape
         # Adjust weight-decay coefficient to account for stochastic learning
         self.weight_decay_coeff = weight_decay_coeff / self.num_training_examples
+        self.LEARNING_RATE = 1.0 / self.num_training_examples
         # Make sure training set and validation set are compatible
         assert self.num_features == self.validation_examples.shape[1]
         # Weight matrices setup
+        np.random.seed(12345)
         if self.num_hidden_units != 0:
             self.hidden_weights = np.random.uniform(-0.1, 0.1, (self.num_features, self.num_hidden_units))
             self.output_weights = np.random.uniform(-0.1, 0.1, (self.num_hidden_units, 1))
@@ -114,7 +116,7 @@ class ANN(object):
             hidden_dl_dw = self.calc_hidden_dl_dw(examples, output_dl_dw)
             self.update_weights(output_dl_dw, hidden_dl_dw)
         else:
-            output_dl_dw = self.calc_output_dl_dw(actual_labels, examples, index)
+            output_dl_dw = self.calc_output_dl_dw(actual_labels, inputs=examples, index=index)
             self.update_weights(output_dl_dw)
         return output_dl_dw
 
@@ -191,7 +193,6 @@ def main(options):
     assert len(options) == 5
     file_base = options[0]
     example_set = parse_c45(file_base)
-    schema = example_set.schema
 
     default_cv_option = 0
     default_num_hidden_units = 20

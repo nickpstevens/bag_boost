@@ -1,4 +1,3 @@
-from random import seed, randrange
 from collections import Counter
 import numpy as np
 
@@ -51,7 +50,7 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 1  # TODO may need to be adjusted
+        num_ann_training_iters = 200  # TODO may need to be adjusted
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_bag(example_set, example_set, schema, num_hidden_units,
                                                        weight_decay_coeff, num_ann_training_iters,
