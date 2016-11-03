@@ -70,7 +70,9 @@ class ANN(object):
                 weighted_error = np.sum([self.training_example_weights[x]
                                          for x in xrange(0, self.num_training_examples)
                                          if self.output_labels[x] != self.training_labels[x]])
-                print('\t' + str(i) + '.\tIteration error:\t' + str(weighted_error))
+                print('\t' + str(i) + '.\tWeighted error:\t' + str(weighted_error))
+                if i >= max_iters:
+                    break
         elif num_training_iters == 0:
             i = 0
             while not np.array_equal(self.output_labels, self.training_labels):

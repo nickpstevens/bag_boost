@@ -116,7 +116,7 @@ def ann_bag(training_set, validation_set, schema, num_hidden_units,
     for i in xrange(0, num_bagging_training_iters):
         print('\nBagging Iteration ' + str(i+1))
         replicate_set = bootstrap_replicate(training_set, schema, seed_value=i)
-        weighted_replicate_set = np.column_stack((example_weights, training_set))
+        weighted_replicate_set = np.column_stack((example_weights, replicate_set))
         ann = ANN(weighted_replicate_set, validation_set, num_hidden_units, weight_decay_coeff, weighted_examples=True)
         ann.train(num_ann_training_iters, weak_converge=True)
         iter_labels = np.column_stack((iter_labels, ann.evaluate()[1]))

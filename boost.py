@@ -122,9 +122,8 @@ def ann_boost(training_set, validation_set, num_hidden_units,
         actual_labels = ann.training_labels
         assigned_labels = ann.output_labels
         error = weighted_training_error(example_weights, actual_labels, assigned_labels)
-        print('\n\terror: ' + str(error))
         alpha = classifier_weight(error)
-        print('\talpha: ' + str(alpha))
+        print('\n\talpha: ' + str(alpha))
         if alpha == float('inf'):
             alphas = [float('inf')]
             anns = [ann]
