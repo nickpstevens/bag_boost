@@ -2,7 +2,7 @@ from collections import Counter
 import numpy as np
 
 from mldata import *
-from ann import ANN, find_area_under_roc, evaluate_ann_performance, k_folds_stratified
+from ann import ANN, standardize, find_area_under_roc, evaluate_ann_performance, k_folds_stratified, flip_labels_with_probability
 
 
 """
@@ -21,7 +21,6 @@ def main(options):
     assert len(options) == 4
     file_base = options[0]
     example_set = parse_c45(file_base)
-    schema = example_set.schema
 
     default_cv_option = 0
     default_learning_algorithm = ANN
@@ -50,9 +49,10 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 0  # TODO may need to be adjusted
+        num_ann_training_iters = 0
+        p = 0.0  # Only increase to introduce noise
         if cv_option == 1:
-            accuracy, precision, recall, fpr = ann_bag(example_set, example_set, schema, num_hidden_units,
+            accuracy, precision, recall, fpr = ann_bag(example_set, example_set, num_hidden_units,
                                                        weight_decay_coeff, num_ann_training_iters,
                                                        num_bagging_training_iters)
             print('Accuracy:\t' + str("%0.6f" % accuracy))
@@ -73,8 +73,9 @@ def main(options):
                     for example in fold_set[k]:
                         training_set.append(example)
                 training_set = np.array(training_set)
+                training_set = flip_labels_with_probability(training_set, p)
                 print('Fold ' + str(i + 1))
-                accuracy, precision, recall, fpr = ann_bag(training_set, validation_set, schema, num_hidden_units,
+                accuracy, precision, recall, fpr = ann_bag(training_set, validation_set, num_hidden_units,
                                                             weight_decay_coeff, num_ann_training_iters,
                                                             num_bagging_training_iters)
                 np.put(accuracy_vals, i, accuracy)
@@ -92,34 +93,25 @@ def main(options):
             print('Precision:\t' + str("%0.6f" % precision) + '\t' + str("%0.6f" % precision_std))
             print('Recall:\t\t' + str("%0.6f" % recall) + '\t' + str("%0.6f" % recall_std))
             print('Area Under ROC:\t' + str("%0.6f" % aroc) + '\n')
+            print('Fold Errors:\t' + str([float(str("%0.6f" % (1-x))) for x in accuracy_vals]) + '\n')
     else:
         raise NotImplementedError
 
 
-def standardize(example_set):
-    """
-    Replaces each feature value x in the example set with (x - mean(x)) / standard_deviation(x)
-    Any NaN values caused by 0s in the standard deviation are just replaced with 0.
-    Uses ddof=1 because this is calculating the sample standard deviation.
-    """
-    labels = example_set[:, [CLASS_LABEL]]
-    feature_values = example_set[:, :CLASS_LABEL]
-    standardized = (feature_values - np.mean(feature_values, axis=0)) / np.std(feature_values, axis=0, ddof=1)
-    standardized = np.nan_to_num(standardized)
-    return np.column_stack((standardized, labels))
-
-
-def ann_bag(training_set, validation_set, schema, num_hidden_units,
+def ann_bag(training_set, validation_set, num_hidden_units,
             weight_decay_coeff, num_ann_training_iters, num_bagging_training_iters):
-    iter_labels = np.empty(len(validation_set))
+    iter_labels = None
     example_weights = np.full((training_set.shape[0], 1), 1.0 / len(training_set))
     for i in xrange(0, num_bagging_training_iters):
         print('\nBagging Iteration ' + str(i+1))
-        replicate_set = bootstrap_replicate(training_set, schema, seed_value=i)
+        replicate_set = bootstrap_replicate(training_set, seed_value=i)
         weighted_replicate_set = np.column_stack((example_weights, replicate_set))
         ann = ANN(weighted_replicate_set, validation_set, num_hidden_units, weight_decay_coeff, weighted_examples=True)
-        ann.train(num_ann_training_iters, weak_converge=True)
-        iter_labels = np.column_stack((iter_labels, ann.evaluate()[1]))
+        ann.train(num_ann_training_iters, convergence_err=0.5)
+        if iter_labels is not None:
+            iter_labels = np.column_stack((iter_labels, ann.evaluate()[1]))
+        else:
+            iter_labels = ann.evaluate()[1]
     voting_labels = np.apply_along_axis(most_common_label, 1, iter_labels)
     assert ann is not None
     actual_labels = ann.validation_labels
@@ -133,7 +125,7 @@ def most_common_label(vector):
     return counter.most_common(1)[0][0]
 
 
-def bootstrap_replicate(example_set, schema, size=None, seed_value=12345):
+def bootstrap_replicate(example_set, size=None, seed_value=12345):
     """
     Creates a bootstrap replicate of example_set by sampling with replacement. If creating multiple replicates, input a
     different seed_value for every call to produce different sets.
@@ -142,9 +134,10 @@ def bootstrap_replicate(example_set, schema, size=None, seed_value=12345):
     if size is None:
         size = num_examples
     np.random.seed(seed_value)
-    replicate = np.empty([size, len(schema)])
+    replicate = np.empty([size, np.shape(example_set)[1]])
     for i in xrange(0, size):
-        replicate[i, :] = example_set[np.random.randint(0, num_examples), :]
+        random_ex = example_set[np.random.randint(0, num_examples), :]
+        replicate[i, :] = random_ex
     return replicate
 
 

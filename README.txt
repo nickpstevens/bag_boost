@@ -5,22 +5,27 @@ Nick Stevens
 This program contains implementations of the "bagging" (bootstrap aggregation) and "boosting" (specifically AdaBoost)
 ensemble classification methods.
 
-Currently this only supports the included ANN learning algorithm.
+Currently, bagging and boosting are only supported for the included ANN learning algorithm.
 
 USAGE
 
-The program takes 4 arguments:
+This program takes 4 arguments:
 
     1. The title of the dataset contained in the "data" folder
     2. Cross-validation option. 0 --> use CV; 1 --> run program on the full sample
     3. Name of learning algorithm. "ann" is currently the only supported option.
     4. The number of bagging/boosting iterations
 
-Example: python bag.py "volcanoes" 0 "ann" 10
+Example: python boost.py "volcanoes" 0 "ann" 10
 
 BAGGING
 
+Bagging works by randomly sampling (with replacement) from the training data to create [number of bagging iterations]
+training sets. These are called "bootstrap replicates". Each of these sets is then used to train a classifier, and each
+classifier is run on the same validation set. The assigned validation labels from each classifier are saved. Finally,
+for each example in the validation set, the most common label amongst all classifiers is assigned as the final label.
 
+The goal of bagging is to reduce the variance in the example data to improve classifier accuracy.
 
 BOOSTING
 

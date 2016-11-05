@@ -2,7 +2,7 @@ import numpy as np
 from math import log
 
 from mldata import *
-from ann import ANN, find_area_under_roc, evaluate_ann_performance, k_folds_stratified
+from ann import ANN, standardize, find_area_under_roc, evaluate_ann_performance, k_folds_stratified, flip_labels_with_probability
 
 
 """
@@ -49,7 +49,8 @@ def main(options):
     if learning_algorithm is ANN:
         num_hidden_units = 0  # Perceptron
         weight_decay_coeff = 0.01
-        num_ann_training_iters = 0  # TODO may need to be adjusted
+        num_ann_training_iters = 0
+        p = 0.0  # Only increase to introduce noise
         if cv_option == 1:
             accuracy, precision, recall, fpr = ann_boost(example_set, example_set, num_hidden_units,
                                                          weight_decay_coeff, num_ann_training_iters,
@@ -72,6 +73,7 @@ def main(options):
                     for example in fold_set[k]:
                         training_set.append(example)
                 training_set = np.array(training_set)
+                training_set = flip_labels_with_probability(training_set, p)
                 print('Fold ' + str(i + 1))
                 accuracy, precision, recall, fpr = ann_boost(training_set, validation_set, num_hidden_units,
                                                              weight_decay_coeff, num_ann_training_iters,
@@ -91,21 +93,9 @@ def main(options):
             print('Precision:\t' + str("%0.6f" % precision) + '\t' + str("%0.6f" % precision_std))
             print('Recall:\t\t' + str("%0.6f" % recall) + '\t' + str("%0.6f" % recall_std))
             print('Area Under ROC:\t' + str("%0.6f" % aroc) + '\n')
+            print('Fold Errors:\t' + str([float(str("%0.6f" % (1-x))) for x in accuracy_vals]) + '\n')
     else:
         raise NotImplementedError
-
-
-def standardize(example_set):
-    """
-    Replaces each feature value x in the example set with (x - mean(x)) / standard_deviation(x)
-    Any NaN values caused by 0s in the standard deviation are just replaced with 0.
-    Uses ddof=1 because this is calculating the sample standard deviation.
-    """
-    labels = example_set[:, [CLASS_LABEL]]
-    feature_values = example_set[:, :CLASS_LABEL]
-    standardized = (feature_values - np.mean(feature_values, axis=0)) / np.std(feature_values, axis=0, ddof=1)
-    standardized = np.nan_to_num(standardized)
-    return np.column_stack((standardized, labels))
 
 
 def ann_boost(training_set, validation_set, num_hidden_units,
@@ -118,7 +108,7 @@ def ann_boost(training_set, validation_set, num_hidden_units,
         print('\nBoosting Iteration ' + str(i+1))
         weighted_training_set = np.column_stack((example_weights, training_set))
         ann = ANN(weighted_training_set, validation_set, num_hidden_units, weight_decay_coeff, weighted_examples=True)
-        ann.train(num_ann_training_iters, weak_converge=True)
+        ann.train(num_ann_training_iters, convergence_err=0.5, min_iters=1)
         actual_labels = ann.training_labels
         assigned_labels = ann.output_labels
         error = weighted_training_error(example_weights, actual_labels, assigned_labels)
@@ -135,7 +125,6 @@ def ann_boost(training_set, validation_set, num_hidden_units,
         else:
             break
     alphas = np.array(alphas)
-    print(alphas.T)
     vote_labels = weighted_vote_labels(anns, alphas)
     assert ann is not None
     actual_labels = ann.validation_labels
